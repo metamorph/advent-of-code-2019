@@ -22,7 +22,7 @@
         p3 (quot (rem n 100000) 10000)]
     [code p1 p2 p3]))
 
-(defn step [{:keys [pos prg inputs] :as state}]
+(defn step [{:keys [pos prg input outputs] :as state}]
   (let [[code m1 m2 m3] (op (first (drop pos prg)))]
     (case code
       ;; 1 - add values
@@ -41,15 +41,18 @@
               (update :prg assoc c (* a b))))
       ;; 3 - store INPUT
       3 (let [a (first (drop (inc pos) prg))]
-          (-> state
-              (update :pos + 2)
-              (update :prg assoc a (first inputs))
-              (update :inputs rest)))
+          (println "Reading input, writing to " a)
+          (let [v (a/<!! input)]
+            (println "Found " v " as input")
+            (-> state
+                (update :pos + 2)
+                (update :prg assoc a v))))
       ;; 4 - write OUTPUT
       4 (let [a (first (drop (inc pos) prg))]
-          (-> state
-              (update :outputs conj (get prg a))
-              (update :pos + 2)))
+          (let [v (get prg a)]
+            (println "Outputting " v)
+            (a/>!! outputs v)
+            (update state :pos + 2)))
       ;; 5 - jump-if-true [>0, new-pos], else ignore
       5 (let [[a b] (take 2 (drop (inc pos) prg))
               a (if (zero? m1) (get prg a) a)
@@ -81,17 +84,35 @@
               (update :pos + 4)
               (update :prg assoc c (if (= a b) 1 0))))
       ;; End-state
-      99 (assoc state :halt? true))))
+      99 (do
+           (println "Halted. Closing output.")
+           (a/close! outputs)
+           (assoc state :halt? true)))))
 
-(defn run [prg inputs]
-  (let [steps (iterate step {:pos 0
-                             :halt? false
-                             :prg prg
-                             :inputs (seq inputs)
-                             :outputs '()})]
-    (:outputs (first (drop-while #(not (:halt? %)) steps)))))
+(defn seq!!
+  "Returns a (blocking!) lazy sequence read from a channel."
+  [c]
+  (lazy-seq
+   (when-let [v (a/<!! c)]
+     (cons v (seq!! c)))))
+
+(defn run [prg input-ch]
+  (let [out   (a/chan)
+        steps (iterate step {:pos     0
+                             :halt?   false
+                             :prg     prg
+                             :input   input-ch
+                             :outputs out})]
+    (a/thread
+      (doall (take-while #(not (:halt? %)) steps)))
+    out))
+
+(defn run!! [prg inputs]
+  (last (seq!! (run prg (a/to-chan inputs)))))
+
+
 
 (defn run-test []
-  (assert (= 2845163 (first (run input (list 1)))))
-  (assert (= 9436229 (first (run input (list 5)))))
+  (assert (= 2845163 (last (seq!! (run input (a/to-chan (list 1)))))))
+  (assert (= 9436229 (last (seq!! (run input (a/to-chan (list 5)))))))
   "Success!")

@@ -1,9 +1,10 @@
 (ns aoc2019.day-07
-  (:require [aoc2019.day-05 :refer [run]]
+  (:require [aoc2019.day-05 :refer [run run!!]]
             [clojure.math.combinatorics :as comb]
             [aoc2019.util :refer [input-lines]]
             [clojure.java.io :as io]
-            [clojure.string :as s]))
+            [clojure.string :as s]
+            [clojure.core.async :as a]))
 
 (def puzzle-input
   (let [data (slurp (io/resource "input-07.txt"))]
@@ -15,7 +16,7 @@
   (loop [input seed
          phases phase-settings]
     (if (seq phases)
-      (let [output (first (run prg (list (first phases) input)))]
+      (let [output (run!! prg (list (first phases) input))]
         (recur output (rest phases)))
       input)))
 
@@ -24,6 +25,8 @@
     (->> (map (fn [p] [p (signal prg p 0)]) phases)
          (sort-by #(* -1 (last %)))
          (first))))
+
+
 
 (defn verify []
   (assert (= 43210 (signal [3,15,3,16,1002,16,10,16,1,16,15,15,4,15,99,0,0]
