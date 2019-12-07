@@ -22,7 +22,7 @@
         p3 (quot (rem n 100000) 10000)]
     [code p1 p2 p3]))
 
-(defn step [{:keys [pos prg input] :as state}]
+(defn step [{:keys [pos prg inputs] :as state}]
   (let [[code m1 m2 m3] (op (first (drop pos prg)))]
     (case code
       ;; 1 - add values
@@ -43,7 +43,8 @@
       3 (let [a (first (drop (inc pos) prg))]
           (-> state
               (update :pos + 2)
-              (update :prg assoc a input)))
+              (update :prg assoc a (first inputs))
+              (update :inputs rest)))
       ;; 4 - write OUTPUT
       4 (let [a (first (drop (inc pos) prg))]
           (-> state
@@ -82,15 +83,15 @@
       ;; End-state
       99 (assoc state :halt? true))))
 
-(defn run [prg input]
+(defn run [prg inputs]
   (let [steps (iterate step {:pos 0
                              :halt? false
                              :prg prg
-                             :input input
+                             :inputs (seq inputs)
                              :outputs '()})]
     (:outputs (first (drop-while #(not (:halt? %)) steps)))))
 
 (defn run-test []
-  (assert (= 2845163 (first (run input 1))))
-  (assert (= 9436229 (first (run input 5))))
+  (assert (= 2845163 (first (run input (list 1)))))
+  (assert (= 9436229 (first (run input (list 5)))))
   "Success!")
