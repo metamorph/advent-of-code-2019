@@ -4,7 +4,8 @@
             [aoc2019.util :refer [input-lines]]
             [clojure.java.io :as io]
             [clojure.string :as s]
-            [clojure.core.async :as a]))
+            [clojure.core.async :as a]
+            [aoc2019.intcodes :as ic]))
 
 (def puzzle-input
   (let [data (slurp (io/resource "input-07.txt"))]
@@ -16,7 +17,7 @@
   (loop [input seed
          phases phase-settings]
     (if (seq phases)
-      (let [output (run!! prg (list (first phases) input))]
+      (let [output (first (ic/run-prg!! prg (list (first phases) input)))]
         (recur output (rest phases)))
       input)))
 
@@ -40,3 +41,32 @@
                            0)))
   (assert (= 99376 (last (max-output puzzle-input))))
   "Ok!")
+
+
+;; So, we've got an async version of intcodes with pluggable input/output channels.
+;; Wire it up
+
+(defn run-feedback-loop [prg phases seed]
+  (let [init-ch (a/chan 10)]
+    ;; (a/>!! init-ch seed) ;; Put seed input on first channel
+    (let [signal-ch (reduce (fn [ch phase]
+                              ;; Put phase input on channel
+                              (a/>!! ch phase)
+                              (ic/run-prg prg ch))
+                            init-ch phases)
+          mon-ch    (a/chan 10)
+          mult (a/mult signal-ch)]
+      (a/>!! init-ch seed)
+      (a/tap mult mon-ch)
+      (a/tap mult init-ch)
+      (last (ic/seq!! mon-ch)))))
+
+(defn max-output-2 [prg]
+  (let [phases (comb/permutations (range 5 10))
+        results (map (fn [phase] [phase (run-feedback-loop prg phase 0)]) phases)]
+    (last (sort-by last results))))
+
+
+
+
+

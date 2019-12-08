@@ -1,7 +1,8 @@
 (ns aoc2019.day-05
   (:require [aoc2019.util :refer :all]
             [clojure.string :as s]
-            [clojure.java.io :as io]))
+            [clojure.java.io :as io]
+            [clojure.core.async :as a]))
 
 (def input
   (let [data (slurp (io/resource "input-05.txt"))]
@@ -109,7 +110,6 @@
 
 (defn run!! [prg inputs]
   (last (seq!! (run prg (a/to-chan inputs)))))
-
 
 
 (defn run-test []
