@@ -11,7 +11,11 @@
         p3 (quot (rem n 100000) 10000)]
     [code p1 p2 p3]))
 
-(defn read-pos [prg v mode] (if (zero? mode) (get prg v) v))
+(defn read-pos [{:keys [prg offset]} v mode]
+  (case mode
+    0 (get prg v 0)
+    1 v
+    2 (get prg (+ offset v) 0)))
 
 (defmulti apply-op (fn [[code & _] _] code))
 
@@ -20,16 +24,16 @@
   (let [[a b c] (take 3 (drop (inc pos) prg))]
     (-> state
         (update :pos + 4)
-        (update :prg assoc c (+ (read-pos prg a m1)
-                                (read-pos prg b m2))))))
+        (update :prg assoc c (+ (read-pos state a m1)
+                                (read-pos state b m2))))))
 
 ;; Multiply
 (defmethod apply-op 2 [[_ m1 m2 m3] {:keys [pos prg] :as state}]
   (let [[a b c] (take 3 (drop (inc pos) prg))]
     (-> state
         (update :pos + 4)
-        (update :prg assoc c (* (read-pos prg a m1)
-                                (read-pos prg b m2))))))
+        (update :prg assoc c (* (read-pos state a m1)
+                                (read-pos state b m2))))))
 
 ;; Read input and store it
 (defmethod apply-op 3 [_ {:keys [pos prg input-fn] :as state}]
@@ -42,22 +46,22 @@
 ;; Write output
 (defmethod apply-op 4 [_ {:keys [pos prg output-fn] :as state}]
   (let [a (first (drop (inc pos) prg))
-        v (get prg a)]
+        v (get prg a 0)]
     (output-fn v)
     (update state :pos + 2)))
 
 ;; Jump if true
 (defmethod apply-op 5 [[_ m1 m2 _] {:keys [pos prg] :as state}]
   (let [[a b] (take 2 (drop (inc pos) prg))]
-    (if (pos? (read-pos prg a m1))
-      (assoc state :pos (read-pos prg b m2))
+    (if (pos? (read-pos state a m1))
+      (assoc state :pos (read-pos state b m2))
       (update state :pos + 3))))
 
 ;; Jump if false
 (defmethod apply-op 6 [[_ m1 m2 _] {:keys [pos prg] :as state}]
   (let [[a b] (take 2 (drop (inc pos) prg))]
-    (if (zero? (read-pos prg a m1))
-      (assoc state :pos (read-pos prg b m2))
+    (if (zero? (read-pos state a m1))
+      (assoc state :pos (read-pos state b m2))
       (update state :pos + 3))))
 
 ;; Less-than [a < b, store 1 in c, else 0]
@@ -65,24 +69,34 @@
   (let [[a b c] (take 3 (drop (inc pos) prg))]
     (-> state
         (update :pos + 4)
-        (update :prg assoc c (if (< (read-pos prg a m1) (read-pos prg b m2)) 1 0)))))
+        (update :prg assoc c (if (< (read-pos state a m1) (read-pos state b m2)) 1 0)))))
 
 ;; Equals [a == b, store 1 in c, else 0]
 (defmethod apply-op 8 [[_ m1 m2 _] {:keys [pos prg] :as state}]
   (let [[a b c] (take 3 (drop (inc pos) prg))]
     (-> state
         (update :pos + 4)
-        (update :prg assoc c (if (= (read-pos prg a m1) (read-pos prg b m2)) 1 0)))))
+        (update :prg assoc c (if (= (read-pos state a m1) (read-pos state b m2)) 1 0)))))
 
 ;; End state
 (defmethod apply-op 99 [_ {:keys [stop-fn] :as state}]
   (stop-fn)
   (assoc state :halt? true))
 
+;; Handle relative-base-offset
+(defmethod apply-op 9 [_ {:keys [pos prg offset] :as state}]
+  (let [a (first (drop (inc pos) prg))]
+    (-> state
+        (update :pos + 2)
+        (update :offset + offset))))
 
 (defn step [{:keys [pos prg] :as state}]
   (let [[code m1 m2 m3 :as pfx] (op (first (drop pos prg)))]
-    (apply-op (op (first (drop pos prg))) state)))
+    (try
+      (apply-op (op (first (drop pos prg))) state)
+      (catch Exception e
+        (println "Error evaluating: " e)
+        (throw (ex-info "Error evaluating" {:state state} e))))))
 
 (defn seq!!
   "Returns a (blocking!) lazy sequence read from a channel."
@@ -97,6 +111,7 @@
         input-fn  (fn [] (a/<!! input-ch))
         stop-fn   (fn [] (a/close! output-ch))
         steps     (iterate step {:prg       prg
+                                 :offset    0
                                  :input-fn  input-fn
                                  :output-fn output-fn
                                  :stop-fn   stop-fn
